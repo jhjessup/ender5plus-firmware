@@ -1,5 +1,13 @@
 # Ender-5 Plus firmware (InsanityAutomation Marlin 2)
 
+> **⚠️ For one specific printer. Don't flash this as-is on another printer.**
+> These settings are tuned for this machine's hardware: Micro Swiss direct drive (e-steps
+> 139.61), a PTFE-lined hotend (255 °C limit), and BLTouch offsets for this mount. On a
+> different setup they can cause wrong extrusion, probing in the wrong place, or overheating.
+> If you have a similar printer, use the [patch](configuration-changes.patch) and
+> [build script](build.sh) as a starting point and change the settings for your hardware.
+> Flash at your own risk. See [LICENSE note](#license).
+
 Firmware configuration, flashing steps and notes for **one specific printer**:
 
 - Creality Ender-5 Plus, V2.2 mainboard (ATmega2560), stock DWIN touchscreen
@@ -68,3 +76,12 @@ compile date and time (10 bytes), so the checksum differs but the firmware is th
   is used (Marlin 2 turns it off when homing).
 - **Run-out sensor:** the original was removed with the direct-drive upgrade. Replacement:
   Creality part 2102010417 (Ender-5 Plus filament sensor).
+
+## License
+
+The firmware is built from [Marlin](https://github.com/MarlinFirmware/Marlin) via
+InsanityAutomation's branch, both licensed under the
+[GNU GPL v3](https://github.com/InsanityAutomation/Marlin/blob/CrealityDwin_2.0/LICENSE).
+The compiled firmware in `firmware/` and the configuration patch are distributed under the
+same license. The full source for the build is the base commit above plus
+`configuration-changes.patch`. Provided without warranty.
