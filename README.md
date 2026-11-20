@@ -42,6 +42,18 @@ Marlin bugfix-2.1.x). That branch hasn't been updated since March 2023.
 - Run-out sensor detection off by default (`FIL_RUNOUT_ENABLED` false): with no sensor
   fitted, the input reads as "out of filament"
 
+Friendlier touchscreen and console (in `Marlin/src/lcd/extui/Creality/Creality_DWIN.cpp` and
+`Configuration_adv.h`):
+
+- **Busy feedback:** when the screen is busy and ignores a tap, its status line says
+  `Busy, please wait` (and `Ready` once it's free again), instead of seeming frozen.
+- **Status messages for leveling:** `Homing...`, `Homing for leveling`, `Pick a corner`,
+  `To front left...` (and the other corners), `Check gap with paper`, `Measuring bed...`,
+  `Measuring done`.
+- **Quieter console:** no `wait` line every second (`NO_TIMEOUTS` off), and the touchscreen's
+  internal debug lines are hidden. Show them with `M111 S2`; hide them again with `M111 S0`.
+- New messages are stored in flash memory, so RAM use is unchanged (74.6%).
+
 Already on in the source, not changed: filament change (`ADVANCED_PAUSE_FEATURE`, `M600`),
 park on pause, `M701`/`M702` load and unload, babystepping linked to the Z probe offset.
 
@@ -53,7 +65,7 @@ pip install platformio py7zr
 ```
 
 Output goes to `build/` (not committed): the `.hex` firmware and the `DWIN_SET/` touchscreen
-folder. Build size: about 66% of flash, 75% of RAM.
+folder. Build size: about 67% of flash, 75% of RAM.
 
 A rebuild matches `firmware/E5P_MicroSwissDD_BLT_BIL_DW7.4.7.hex` except for the embedded
 compile date and time (10 bytes), so the checksum differs but the firmware is the same.
@@ -68,7 +80,9 @@ compile date and time (10 bytes), so the checksum differs but the firmware is th
   reconnections from resetting it.
 - **Serial speed:** stock firmware 115200, this firmware 250000
   (`picocom -b 250000 --imap lfcrlf --echo /dev/ttyUSB0`).
-- **`wait` every second** on the console is normal for this firmware when idle.
+- **`wait` every second** on the console was normal for the first build; it's turned off now.
+- **Touchscreen debugging:** `M111 S2` shows what the touchscreen code is doing, e.g.
+  `handle waitway ==6` means it ignored a tap because it thought it was busy.
 - **Motion limits:** this firmware's defaults (acceleration 2000/750, jerk 20) are much
   higher than stock (500/200, jerk 8). The stock values were restored with
   `M201 X500 Y500`, `M204 P200 R1000 T200`, `M205 X8 Y8`, `M500`.

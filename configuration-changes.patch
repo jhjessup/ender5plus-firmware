@@ -70,3 +70,841 @@ index d3a4d18..735d882 100644
    #else
      #define FIL_RUNOUT_ENABLED { false DISABLED_ADDON} // Default enabled state for sensors E0[, E1[, E2[, E3...]]]. Override with M591EnnSn followed by M500.
    #endif
+diff --git a/Marlin/Configuration_adv.h b/Marlin/Configuration_adv.h
+index 6e0e3d4..cd52fda 100644
+--- a/Marlin/Configuration_adv.h
++++ b/Marlin/Configuration_adv.h
+@@ -2604,7 +2604,7 @@
+ // Some other clients start sending commands while receiving a 'wait'.
+ // This "wait" is only sent when the buffer is empty. 1 second is a good value here.
+ #if NONE(MachineCR10Orig, LowMemoryBoard, MachineEnder3V2, MachineEnder3S1) || ENABLED(MelziHostOnly)
+-  #define NO_TIMEOUTS 1000 // Milliseconds
++  //#define NO_TIMEOUTS 1000 // Milliseconds  (off: no "wait" line every second; only needed by some USB hosts)
+ #endif
+ 
+ // Some clients will have this feature soon. This could make the NO_TIMEOUTS unnecessary.
+diff --git a/Marlin/src/lcd/extui/Creality/Creality_DWIN.cpp b/Marlin/src/lcd/extui/Creality/Creality_DWIN.cpp
+index f84ced7..19a0aa3 100644
+--- a/Marlin/src/lcd/extui/Creality/Creality_DWIN.cpp
++++ b/Marlin/src/lcd/extui/Creality/Creality_DWIN.cpp
+@@ -38,6 +38,10 @@
+ #include <stdio.h>
+ #include "../ui_api.h"
+ 
++// Touchscreen debug messages are hidden unless Marlin's INFO debug flag is on.
++// Show them with M111 S2 (debug info); hide again with M111 S0.
++#define DWIN_DBG(SERIAL_FN, ...) do { if (DEBUGGING(INFO)) SERIAL_FN(__VA_ARGS__); } while (0)
++
+ #if ENABLED(EXTENSIBLE_UI)
+ namespace ExtUI
+ {
+@@ -48,6 +52,8 @@ namespace ExtUI
+   uint8_t startprogress = 0;
+ 
+   char waitway = 0;
++  bool busyShown = false;      // a tap was ignored while busy: say "Ready" when done
++  char lastWaitway = 0;        // to show a message when a busy step finishes
+   int recnum = 0;
+   unsigned char Percentrecord = 0;
+   float ChangeMaterialbuf[2] = {0};
+@@ -155,7 +161,7 @@ void onStartup()
+ 		rtscheck.RTS_SndData(10, FilenameIcon1 + j);
+ 	}
+ 
+-	SERIAL_ECHOLNPGM_P(PSTR("==Dwin Init Complete=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==Dwin Init Complete=="));
+ }
+ 
+ void onIdle()
+@@ -209,7 +215,7 @@ void onIdle()
+       case PAUSE_MESSAGE_HEAT:     ExtUI::onUserConfirmRequired(GET_TEXT_F(MSG_FILAMENT_CHANGE_HEAT)); break;
+       case PAUSE_MESSAGE_HEATING:  ExtUI::onUserConfirmRequired(GET_TEXT_F(MSG_FILAMENT_CHANGE_HEATING)); break;
+       case PAUSE_MESSAGE_OPTION:   ExtUI::onUserConfirmRequired(GET_TEXT_F(MSG_FILAMENT_CHANGE_OPTION_HEADER)); break;
+-      case PAUSE_MESSAGE_STATUS: SERIAL_ECHOLNPGM_P(PSTR("PauseStatus")); break;
++      case PAUSE_MESSAGE_STATUS: DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("PauseStatus")); break;
+       default: onUserConfirmRequired(PSTR("Confirm Continue")); break;
+     }
+     userConfValidation = 0;
+@@ -242,12 +248,24 @@ void onIdle()
+     waitway = 0; //clear waitway if nothing is going on
+   }
+ 
++  // Tell the user when a busy step finishes (status line holds 20 characters).
++  if (lastWaitway && !waitway) {
++    switch (lastWaitway) {
++      case 2: onStatusChanged(F("Pick a corner")); break;         // aux leveling: homed, at Z0
++      case 6: onStatusChanged(F("Check gap with paper")); break;  // aux leveling: at a corner
++      case 7: onStatusChanged(F("Measuring done")); break;        // auto leveling finished
++      default: if (busyShown) onStatusChanged(F("Ready")); break;
++    }
++    busyShown = false;
++  }
++  lastWaitway = waitway;
++
+ 	switch (waitway)
+ 	{
+ 		case 1:
+       if(isPositionKnown()) {
+         InforShowStatus = true;
+-        SERIAL_ECHOLNPGM_P(PSTR("==waitway 1=="));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==waitway 1=="));
+         rtscheck.RTS_SndData(ExchangePageBase + 54, ExchangepageAddr);
+         waitway = 0;
+       }
+@@ -259,7 +277,7 @@ void onIdle()
+ 			break;
+ 
+ 		case 3:
+-      SERIAL_ECHOLNPGM_P(PSTR("==waitway 3=="));
++      DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==waitway 3=="));
+       //if(isPositionKnown() && (getActualTemp_celsius(BED) >= (getTargetTemp_celsius(BED)-1))) {
+ 			  rtscheck.RTS_SndData(ExchangePageBase + 64, ExchangepageAddr);
+         waitway = 7;
+@@ -270,7 +288,7 @@ void onIdle()
+ 		case 4:
+ 			if (AutohomeKey && isPositionKnown() && !commandsInQueue())
+ 			{ //Manual Move Home Done
+-        SERIAL_ECHOLNPGM_P(PSTR("==waitway 4=="));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==waitway 4=="));
+ 				//rtscheck.RTS_SndData(ExchangePageBase + 71 + AxisPagenum, ExchangepageAddr);
+ 				AutohomeKey = false;
+ 				waitway = 0;
+@@ -280,7 +298,7 @@ void onIdle()
+         if(isPositionKnown() && !commandsInQueue()) {
+         InforShowStatus = true;
+         waitway = 0;
+-        SERIAL_ECHOLNPGM_P(PSTR("==waitway 5=="));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==waitway 5=="));
+         rtscheck.RTS_SndData(ExchangePageBase + 78, ExchangepageAddr); //exchange to 78 page
+       }
+       break;
+@@ -339,7 +357,7 @@ void onIdle()
+     else
+       injectCommands_P(PSTR("M22\nM21"));
+     startprogress = 254;
+-    SERIAL_ECHOLNPGM_P(PSTR("  startprogress "));
++    DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("  startprogress "));
+     InforShowStatus = true;
+     TPShowStatus = false;
+     rtscheck.RTS_SndData(ExchangePageBase + 45, ExchangepageAddr);
+@@ -453,12 +471,12 @@ void onIdle()
+ 			NozzleTempStatus[0] = 0;
+ 			rtscheck.RTS_SndData(10 * ChangeMaterialbuf[0], FilementUnit1);
+ 			rtscheck.RTS_SndData(10 * ChangeMaterialbuf[1], FilementUnit2);
+-      SERIAL_ECHOLNPGM_P(PSTR("==Heating Done Change Filament=="));
++      DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==Heating Done Change Filament=="));
+ 			rtscheck.RTS_SndData(ExchangePageBase + 65, ExchangepageAddr);
+ 		}
+ 		else if (getActualTemp_celsius(getActiveTool()) >= getTargetTemp_celsius(getActiveTool()) && NozzleTempStatus[2])
+ 		{
+-			SERIAL_ECHOLNPGM("***NozzleTempStatus[2] =", (int)NozzleTempStatus[2]);
++			DWIN_DBG(SERIAL_ECHOLNPGM, "***NozzleTempStatus[2] =", (int)NozzleTempStatus[2]);
+ 			NozzleTempStatus[2] = 0;
+ 			TPShowStatus = true;
+ 			rtscheck.RTS_SndData(4, ExchFlmntIcon);
+@@ -529,13 +547,13 @@ int RTSSHOW::RTS_RecData()
+ 
+       case DGUS_IDLE: // Waiting for the first header byte
+         receivedbyte = DWIN_SERIAL.read();
+-        //SERIAL_ECHOLNPGM("< ",receivedbyte);
++        //DWIN_DBG(SERIAL_ECHOLNPGM, "< ",receivedbyte);
+         if (FHONE == receivedbyte) rx_datagram_state = DGUS_HEADER1_SEEN;
+         break;
+ 
+       case DGUS_HEADER1_SEEN: // Waiting for the second header byte
+         receivedbyte = DWIN_SERIAL.read();
+-        //SERIAL_ECHOLNPGM(" ", receivedbyte);
++        //DWIN_DBG(SERIAL_ECHOLNPGM, " ", receivedbyte);
+         rx_datagram_state = (FHTWO == receivedbyte) ? DGUS_HEADER2_SEEN : DGUS_IDLE;
+         break;
+ 
+@@ -582,7 +600,7 @@ int RTSSHOW::RTS_RecData()
+           const uint16_t vp = tmp[0] << 8 | tmp[1];
+ 
+          const uint8_t dlen = tmp[2] << 1;  // Convert to Bytes. (Display works with words)
+-          //SERIAL_ECHOLNPGM(" vp=", vp, " dlen=", dlen);
++          //DWIN_DBG(SERIAL_ECHOLNPGM, " vp=", vp, " dlen=", dlen);
+           recdat.addr = vp;
+           recdat.len = tmp[2];
+           for(unsigned int i = 0;i < dlen; i+=2)
+@@ -591,10 +609,10 @@ int RTSSHOW::RTS_RecData()
+             recdat.data[i/2]= (recdat.data[i/2] << 8 )| tmp[4+i];
+           }
+ 
+-          SERIAL_ECHOLNPGM("VP received: ", vp , " - len ", tmp[2]);
++          DWIN_DBG(SERIAL_ECHOLNPGM, "VP received: ", vp , " - len ", tmp[2]);
+ 
+-          SERIAL_ECHOLNPGM("d1: ", tmp[3] , " - d2 ", tmp[4]);
+-          SERIAL_ECHOLNPGM("d3: ", tmp[5] , " - d4 ", tmp[6]);
++          DWIN_DBG(SERIAL_ECHOLNPGM, "d1: ", tmp[3] , " - d2 ", tmp[4]);
++          DWIN_DBG(SERIAL_ECHOLNPGM, "d3: ", tmp[5] , " - d4 ", tmp[6]);
+ 
+           rx_datagram_state = DGUS_IDLE;
+           RTS_HandleData();
+@@ -805,17 +823,19 @@ void RTSSHOW::WriteVariable(uint16_t adr, const void* values, uint8_t valueslen,
+ void RTSSHOW::RTS_HandleData()
+ {
+ 	int Checkkey = -1;
+-	SERIAL_ECHOLNPGM_P(PSTR("  *******RTS_HandleData******** "));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("  *******RTS_HandleData******** "));
+ 	if (waitway > 0) //for waiting
+ 	{
+-		SERIAL_ECHOLNPGM("handle waitway ==", (int)waitway);
++		onStatusChanged(F("Busy, please wait"));
++		busyShown = true;
++		DWIN_DBG(SERIAL_ECHOLNPGM, "handle waitway ==", (int)waitway);
+ 		memset(&recdat, 0, sizeof(recdat));
+ 		recdat.head[0] = FHONE;
+ 		recdat.head[1] = FHTWO;
+ 		return;
+ 	}
+-	SERIAL_ECHOLNPGM("recdat.data[0] ==", recdat.data[0]);
+-	SERIAL_ECHOLNPGM("recdat.addr ==", recdat.addr);
++	DWIN_DBG(SERIAL_ECHOLNPGM, "recdat.data[0] ==", recdat.data[0]);
++	DWIN_DBG(SERIAL_ECHOLNPGM, "recdat.addr ==", recdat.addr);
+ 	for (int i = 0; Addrbuf[i] != 0; i++)
+ 	{
+ 		if (recdat.addr == Addrbuf[i])
+@@ -892,8 +912,8 @@ void RTSSHOW::RTS_HandleData()
+ 	else if (recdat.addr >= SDFILE_ADDR && recdat.addr <= (SDFILE_ADDR + 10 * (FileNum + 1)))
+ 		Checkkey = Filename;
+ 
+-  SERIAL_ECHOLNPGM_P(PSTR("== Checkkey=="));
+-	SERIAL_ECHOLN(Checkkey);
++  DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("== Checkkey=="));
++	DWIN_DBG(SERIAL_ECHOLN, Checkkey);
+ 
+ 	if (Checkkey < 0)
+ 	{
+@@ -904,7 +924,7 @@ void RTSSHOW::RTS_HandleData()
+   }
+ 
+   constexpr float lfrb[4] = BED_TRAMMING_INSET_LFRB;
+-  SERIAL_ECHOLNPGM_P(PSTR("BeginSwitch"));
++  DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("BeginSwitch"));
+ 
+ 	switch (Checkkey)
+ 	{
+@@ -912,11 +932,11 @@ void RTSSHOW::RTS_HandleData()
+       if (recdat.data[0] == 1) // card
+       {
+         InforShowStatus = false;
+-        SERIAL_ECHOLNPGM_P(PSTR("Handle Data PrintFile Pre"));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Handle Data PrintFile Pre"));
+         filenavigator.getFiles(0);
+         fileIndex = 0;
+         recordcount = 0;
+-        SERIAL_ECHOLNPGM_P(PSTR("Handle Data PrintFile Post"));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Handle Data PrintFile Post"));
+         RTS_SndData(ExchangePageBase + 46, ExchangepageAddr);
+       }
+       else if (recdat.data[0] == 2) // return after printing result.
+@@ -933,14 +953,14 @@ void RTSSHOW::RTS_HandleData()
+         RTS_SndData(0, Timehour);
+         RTS_SndData(0, Timemin);
+ 
+-        SERIAL_ECHOLNPGM_P(PSTR("Handle Data PrintFile 2 Setting Screen "));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Handle Data PrintFile 2 Setting Screen "));
+         RTS_SndData(ExchangePageBase + 45, ExchangepageAddr); //exchange to 45 page
+       }
+       else if (recdat.data[0] == 3) // Temperature control
+       {
+         InforShowStatus = true;
+         TPShowStatus = false;
+-        SERIAL_ECHOLNPGM_P(PSTR("Handle Data PrintFile 3 Setting Screen "));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Handle Data PrintFile 3 Setting Screen "));
+         if (getTargetFan_percent((fan_t)getActiveTool())==0)
+           RTS_SndData(ExchangePageBase + 58, ExchangepageAddr); //exchange to 58 page, the fans off
+         else
+@@ -957,7 +977,7 @@ void RTSSHOW::RTS_HandleData()
+       }
+       else if (recdat.data[0] == 2)
+       {
+-        SERIAL_ECHOLNPGM_P(PSTR("Handle Data Adjust 2 Setting Screen "));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Handle Data Adjust 2 Setting Screen "));
+         InforShowStatus = true;
+         if (PrinterStatusKey[1] == 3) // during heating
+         {
+@@ -989,13 +1009,13 @@ void RTSSHOW::RTS_HandleData()
+       case IdexSettings:
+         if (recdat.addr == T2Offset_X)
+         {
+-          SERIAL_ECHOLNPGM("T2Offset_X Set 0 : ", recdat.data[0]);
+-          SERIAL_ECHOLNPGM("T2Offset_X Set 1 : ", recdat.data[1]);
++          DWIN_DBG(SERIAL_ECHOLNPGM, "T2Offset_X Set 0 : ", recdat.data[0]);
++          DWIN_DBG(SERIAL_ECHOLNPGM, "T2Offset_X Set 1 : ", recdat.data[1]);
+ 
+           union { long l; short lb[2]; } tmpLongBuff;
+           tmpLongBuff.lb[0] = recdat.data[1];
+           tmpLongBuff.lb[1] = recdat.data[0];
+-          SERIAL_ECHOLNPGM("T2Offset_X L : ", tmpLongBuff.l);
++          DWIN_DBG(SERIAL_ECHOLNPGM, "T2Offset_X L : ", tmpLongBuff.l);
+           setNozzleOffset_mm(tmpLongBuff.l/1000, X, E1);
+         }
+         else if (recdat.addr == T2Offset_Y)
+@@ -1022,18 +1042,18 @@ void RTSSHOW::RTS_HandleData()
+     case PrintChoice:
+       if (recdat.addr == Stopprint)
+       {
+-        SERIAL_ECHOLNPGM_P(PSTR("StopPrint"));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("StopPrint"));
+         if (recdat.data[0] == 240) // no
+         {
+           RTS_SndData(ExchangePageBase + 53, ExchangepageAddr);
+-          SERIAL_ECHOLNPGM("Stop No", recdat.data[0] );
++          DWIN_DBG(SERIAL_ECHOLNPGM, "Stop No", recdat.data[0] );
+         }
+         else
+         {
+           RTS_SndData(ExchangePageBase + 45, ExchangepageAddr);
+           RTS_SndData(0, Timehour);
+           RTS_SndData(0, Timemin);
+-          SERIAL_ECHOLNPGM("Stop Triggered", recdat.data[0] );
++          DWIN_DBG(SERIAL_ECHOLNPGM, "Stop Triggered", recdat.data[0] );
+           stopPrint();
+         }
+       }
+@@ -1074,13 +1094,13 @@ void RTSSHOW::RTS_HandleData()
+       {
+         tmp_zprobe_offset = ((float)recdat.data[0]) / 100;
+       }
+-      SERIAL_ECHOLNPGM("Requested Offset ", tmp_zprobe_offset);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "Requested Offset ", tmp_zprobe_offset);
+       if (WITHIN((tmp_zprobe_offset), Z_PROBE_OFFSET_RANGE_MIN, Z_PROBE_OFFSET_RANGE_MAX))
+       {
+         int16_t tmpSteps = mmToWholeSteps(getZOffset_mm() - tmp_zprobe_offset, (axis_t)Z);
+         if(tmpSteps==0)
+         {
+-          SERIAL_ECHOLNPGM_P(PSTR("Rounding to step"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Rounding to step"));
+           if(getZOffset_mm() < tmp_zprobe_offset)
+             tmpSteps = 1;
+           else
+@@ -1170,7 +1190,7 @@ void RTSSHOW::RTS_HandleData()
+       break;
+ 
+     case ManualSetTemp:
+-    SERIAL_ECHOLNPGM_P(PSTR("ManualSetTemp"));
++    DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("ManualSetTemp"));
+       if (recdat.addr == NzBdSet)
+       {
+         if (recdat.data[0] == 0)
+@@ -1433,7 +1453,7 @@ void RTSSHOW::RTS_HandleData()
+       break;
+ 
+     case ReturnBack:
+-      SERIAL_ECHOPGM("Return : ", recdat.data[0]);
++      DWIN_DBG(SERIAL_ECHOPGM, "Return : ", recdat.data[0]);
+       if (recdat.data[0] == 1) // return to the tool page
+       {
+         InforShowStatus = false;
+@@ -1446,7 +1466,7 @@ void RTSSHOW::RTS_HandleData()
+       break;
+ 
+     case Bedlevel:
+-      SERIAL_ECHOLNPGM("Bed Level Option ",  recdat.data[0]);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "Bed Level Option ",  recdat.data[0]);
+       switch(recdat.data[0])
+       {
+         case 1: // Z-axis to home
+@@ -1456,6 +1476,7 @@ void RTSSHOW::RTS_HandleData()
+             injectCommands_P(PSTR("G28\nG1F1500Z0.0"));
+           else
+             injectCommands_P(PSTR("G28Z\nG1F1500Z0.0"));
++          onStatusChanged(F("Homing..."));
+ 
+           RTS_SndData(getZOffset_mm() * 100, ProbeOffset_Z);
+           break;
+@@ -1465,7 +1486,7 @@ void RTSSHOW::RTS_HandleData()
+           if (WITHIN((getZOffset_mm() + 0.1), Z_PROBE_OFFSET_RANGE_MIN, Z_PROBE_OFFSET_RANGE_MAX))
+           {
+             smartAdjustAxis_steps((getAxisSteps_per_mm(Z) / 10), (axis_t)Z, false);
+-            //SERIAL_ECHOLNPGM("Babystep Pos Steps : ", (int)(getAxisSteps_per_mm(Z) / 10));
++            //DWIN_DBG(SERIAL_ECHOLNPGM, "Babystep Pos Steps : ", (int)(getAxisSteps_per_mm(Z) / 10));
+             //setZOffset_mm(getZOffset_mm() + 0.1);
+             RTS_SndData(getZOffset_mm() * 100, ProbeOffset_Z);
+             char zOffs[20], tmp1[11];
+@@ -1479,7 +1500,7 @@ void RTSSHOW::RTS_HandleData()
+           if (WITHIN((getZOffset_mm() - 0.1), Z_PROBE_OFFSET_RANGE_MIN, Z_PROBE_OFFSET_RANGE_MAX))
+           {
+             smartAdjustAxis_steps(((getAxisSteps_per_mm(Z) / 10) * -1), (axis_t)Z, false);
+-            //SERIAL_ECHOLNPGM("Babystep Neg Steps : ", (int)((getAxisSteps_per_mm(Z) / 10) * -1));
++            //DWIN_DBG(SERIAL_ECHOLNPGM, "Babystep Neg Steps : ", (int)((getAxisSteps_per_mm(Z) / 10) * -1));
+             //babystepAxis_steps((((int)getAxisSteps_per_mm(Z) / 10) * -1), (axis_t)Z);
+             //setZOffset_mm(getZOffset_mm() - 0.1);
+             RTS_SndData(getZOffset_mm() * 100, ProbeOffset_Z);
+@@ -1499,6 +1520,7 @@ void RTSSHOW::RTS_HandleData()
+           else
+             injectCommands_P((PSTR("G1 F1000 Z0.0")));
+           waitway = 2;
++          onStatusChanged(F("Homing for leveling"));
+           RTS_SndData(ExchangePageBase + 84, ExchangepageAddr);
+           break;
+         }
+@@ -1516,12 +1538,14 @@ void RTSSHOW::RTS_HandleData()
+             }
+             RTS_SndData(ExchangePageBase + 64, ExchangepageAddr);
+             injectCommands_P(PSTR(MEASURING_GCODE));
++            onStatusChanged(F("Measuring bed..."));
+           #endif
+           break;
+         }
+ 
+         case 6: // Assitant Level ,  Centre 1
+         {
++          onStatusChanged(F("To centre..."));
+           setAxisPosition_mm(BED_TRAMMING_Z_HOP, (axis_t)Z);
+           setAxisPosition_mm(X_CENTER, (axis_t)X);
+           setAxisPosition_mm(Y_CENTER, (axis_t)Y);
+@@ -1530,6 +1554,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         case 7: // Assitant Level , Front Left 2
+         {
++          onStatusChanged(F("To front left..."));
+           setAxisPosition_mm(BED_TRAMMING_Z_HOP, (axis_t)Z);
+           setAxisPosition_mm((X_MIN_BED + lfrb[0]), (axis_t)X);
+           setAxisPosition_mm((Y_MIN_BED + lfrb[1]), (axis_t)Y);
+@@ -1538,6 +1563,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         case 8: // Assitant Level , Front Right 3
+         {
++          onStatusChanged(F("To front right..."));
+           setAxisPosition_mm(BED_TRAMMING_Z_HOP, (axis_t)Z);
+           setAxisPosition_mm((X_MAX_BED - lfrb[2]), (axis_t)X);
+           setAxisPosition_mm((Y_MIN_BED + lfrb[1]), (axis_t)Y);
+@@ -1546,6 +1572,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         case 9: // Assitant Level , Back Right 4
+         {
++          onStatusChanged(F("To back right..."));
+           setAxisPosition_mm(BED_TRAMMING_Z_HOP, (axis_t)Z);
+           setAxisPosition_mm((X_MAX_BED - lfrb[2]), (axis_t)X);
+           setAxisPosition_mm((Y_MAX_BED - lfrb[3]), (axis_t)Y);
+@@ -1554,6 +1581,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         case 10: // Assitant Level , Back Left 5
+         {
++          onStatusChanged(F("To back left..."));
+           setAxisPosition_mm(BED_TRAMMING_Z_HOP, (axis_t)Z);
+           setAxisPosition_mm((X_MIN_BED + lfrb[0]), (axis_t)X);
+           setAxisPosition_mm((Y_MAX_BED - lfrb[3]), (axis_t)Y);
+@@ -1685,7 +1713,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         default:
+         {
+-          SERIAL_ECHOLNPGM("Unsupported Option Selected", recdat.data[0]);
++          DWIN_DBG(SERIAL_ECHOLNPGM, "Unsupported Option Selected", recdat.data[0]);
+           break;
+         }
+       }
+@@ -1836,7 +1864,7 @@ void RTSSHOW::RTS_HandleData()
+ 
+     case LanguageChoice:
+ 
+-      SERIAL_ECHOLNPGM("\n ***recdat.data[0] =", recdat.data[0]);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "\n ***recdat.data[0] =", recdat.data[0]);
+       /*if(recdat.data[0]==1) {
+           settings.save();
+         }
+@@ -1844,11 +1872,11 @@ void RTSSHOW::RTS_HandleData()
+           injectCommands_P(PSTR("M300"));
+         }*/
+       // may at some point use language change screens to save eeprom explicitly
+-      SERIAL_ECHOLNPGM_P(PSTR("InLangChoice"));
++      DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("InLangChoice"));
+       switch(recdat.data[0])
+       {
+         case 0: {
+-          SERIAL_ECHOLNPGM_P(PSTR("Store Settings"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Store Settings"));
+           injectCommands_P(PSTR("M500"));
+           break;
+         }
+@@ -1864,12 +1892,12 @@ void RTSSHOW::RTS_HandleData()
+           }
+         #endif
+         case 3: {
+-          SERIAL_ECHOLNPGM_P(PSTR("Init EEPROM"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Init EEPROM"));
+           injectCommands_P(PSTR("M502\nM500"));
+           break;
+         }
+         case 4: {
+-          SERIAL_ECHOLNPGM_P(PSTR("BLTouch Reset"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("BLTouch Reset"));
+           injectCommands_P(PSTR("M999\nM280P0S160"));
+           break;
+         }
+@@ -1879,27 +1907,27 @@ void RTSSHOW::RTS_HandleData()
+             onStatusChanged("Bed PID Started");
+             startBedPIDTune(static_cast<celsius_t>(pid_bedAutoTemp));
+           #else
+-            SERIAL_ECHOLNPGM_P(PSTR("Bed PID Disabled"));
++            DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Bed PID Disabled"));
+           #endif
+           break;
+         }
+         case 6: {
+-          SERIAL_ECHOLNPGM_P(PSTR("Store Settings"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Store Settings"));
+           injectCommands_P(PSTR("M500"));
+           break;
+         }
+         default: {
+-          SERIAL_ECHOLNPGM_P(PSTR("Invalid Option"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Invalid Option"));
+           break;
+         }
+       }
+       break;
+     case No_Filement:
+-      SERIAL_ECHOLNPGM_P(PSTR("\n No Filament"));
++      DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("\n No Filament"));
+ 
+       if (recdat.data[0] == 1) //Filament is out, resume / resume selected on screen
+       {
+-        SERIAL_ECHOLNPGM_P(PSTR("Resume Yes during print"));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Resume Yes during print"));
+         if (ExtUI::pauseModeStatus != PAUSE_MESSAGE_PURGE && ExtUI::pauseModeStatus != PAUSE_MESSAGE_OPTION)
+         {
+           //setPauseMenuResponse(PAUSE_RESPONSE_RESUME_PRINT);
+@@ -1928,7 +1956,7 @@ void RTSSHOW::RTS_HandleData()
+       }
+       else if (recdat.data[0] == 0) // Filamet is out, Cancel Selected
+       {
+-        SERIAL_ECHOLNPGM_P(PSTR(" Filament Response No"));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR(" Filament Response No"));
+         if(ExtUI::pauseModeStatus == PAUSE_MESSAGE_PURGE || ExtUI::pauseModeStatus == PAUSE_MESSAGE_OPTION) {
+           setPauseMenuResponse(PAUSE_RESPONSE_EXTRUDE_MORE);
+           setUserConfirmed();
+@@ -1970,15 +1998,15 @@ void RTSSHOW::RTS_HandleData()
+       break;
+ 
+     case Filename:
+-      SERIAL_ECHOLNPGM_P(PSTR("Filename Selected"));
++      DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Filename Selected"));
+       if (isMediaInserted() && recdat.addr == FilenameChs)
+       {
+-        SERIAL_ECHOLNPGM_P(PSTR("Has Media"));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Has Media"));
+ 
+         recordcount = recdat.data[0] - 1;
+         if(filenavigator.currentindex == 0 && filenavigator.folderdepth > 0 && (fileIndex + recordcount) == 0) {
+           filenavigator.upDIR();
+-          SERIAL_ECHOLNPGM_P(PSTR("GoUpDir"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("GoUpDir"));
+           filenavigator.getFiles(0);
+           fileIndex = 0;
+           return;
+@@ -1996,14 +2024,14 @@ void RTSSHOW::RTS_HandleData()
+             RTS_SndData(0, Choosefilename + j);
+ 
+         if(filenavigator.getIndexisDir(fileIndex + recordcount)) {
+-          SERIAL_ECHOLNPGM("Is Dir ", (fileIndex + recordcount));
++          DWIN_DBG(SERIAL_ECHOLNPGM, "Is Dir ", (fileIndex + recordcount));
+           filenavigator.changeDIR((char *)filenavigator.getIndexName(fileIndex + recordcount));
+           filenavigator.getFiles(0);
+           fileIndex = 0;
+           return;
+         }
+         else{
+-          SERIAL_ECHOLNPGM("Is File ", (fileIndex + recordcount));
++          DWIN_DBG(SERIAL_ECHOLNPGM, "Is File ", (fileIndex + recordcount));
+           RTS_SndData(filenavigator.getIndexName(fileIndex + recordcount), Choosefilename);
+           RTS_SndData((unsigned long)0x87F0, FilenameNature + recdat.data[0] * 16); // Change BG of selected line to Light Green
+           RTS_SndData(6, FilenameIcon1 + recdat.data[0]);							  // show frame
+@@ -2032,7 +2060,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         else if(recdat.data[0] == 2) //Page Down
+         {
+-          SERIAL_ECHOLNPGM_P(PSTR("PgDown"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("PgDown"));
+           if((fileIndex+DISPLAY_FILES) < (filenavigator.maxFiles() + (filenavigator.folderdepth!=0))) {
+             fileIndex = fileIndex + DISPLAY_FILES;
+             //if(filenavigator.folderdepth!=0 && fileIndex!=0) //Shift to acknowledge Return DIR button on first page
+@@ -2044,7 +2072,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         else if(recdat.data[0] == 3) //Page Up
+         {
+-          SERIAL_ECHOLNPGM_P(PSTR("PgUp"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("PgUp"));
+           if(fileIndex>=DISPLAY_FILES) {
+             fileIndex = fileIndex - DISPLAY_FILES;
+             //if(filenavigator.folderdepth!=0 && fileIndex!=0) //Shift to acknowledge Return DIR button on first page
+@@ -2055,7 +2083,7 @@ void RTSSHOW::RTS_HandleData()
+         }
+         else if(recdat.data[0] == 4) //Page Up
+         {
+-          SERIAL_ECHOLNPGM_P(PSTR("Refresh"));
++          DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Refresh"));
+           injectCommands_P(PSTR("M22\nM21"));
+         }
+         else if (recdat.data[0] == 0) //	return to main page
+@@ -2068,7 +2096,7 @@ void RTSSHOW::RTS_HandleData()
+ 
+     case VolumeDisplay:
+     {
+-      SERIAL_ECHOLN("VolumeDisplay");
++      DWIN_DBG(SERIAL_ECHOLN, "VolumeDisplay");
+       if(recdat.data[0]==0) {
+         Settings.display_volume = 0;
+         Settings.display_sound = false;
+@@ -2086,8 +2114,8 @@ void RTSSHOW::RTS_HandleData()
+ 
+     case DisplayBrightness:
+     {
+-      SERIAL_ECHOLN("DisplayBrightness");
+-      SERIAL_ECHOLNPGM("DisplayBrightness LCD: ", recdat.data[0]);
++      DWIN_DBG(SERIAL_ECHOLN, "DisplayBrightness");
++      DWIN_DBG(SERIAL_ECHOLNPGM, "DisplayBrightness LCD: ", recdat.data[0]);
+       if(recdat.data[0]<10) {
+         Settings.screen_brightness = 10;
+       } else if (recdat.data[0] > 100) {
+@@ -2095,14 +2123,14 @@ void RTSSHOW::RTS_HandleData()
+       } else {
+         Settings.screen_brightness = (uint8_t)recdat.data[0];
+       }
+-      SERIAL_ECHOLNPGM("DisplayBrightness Set: ", Settings.screen_brightness);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "DisplayBrightness Set: ", Settings.screen_brightness);
+       SetTouchScreenConfiguration();
+       break;
+     }
+ 
+     case DisplayStandbyBrightness:
+     {
+-      SERIAL_ECHOLN("DisplayStandbyBrightness");
++      DWIN_DBG(SERIAL_ECHOLN, "DisplayStandbyBrightness");
+       if(recdat.data[0]<10) {
+         Settings.standby_screen_brightness = 10;
+       } else if (recdat.data[0] > 100) {
+@@ -2116,7 +2144,7 @@ void RTSSHOW::RTS_HandleData()
+ 
+     case DisplayStandbySeconds:
+     {
+-      SERIAL_ECHOLN("DisplayStandbySeconds");
++      DWIN_DBG(SERIAL_ECHOLN, "DisplayStandbySeconds");
+       if(recdat.data[0]<5) {
+         Settings.standby_time_seconds = 5;
+       } else if (recdat.data[0] > 100) {
+@@ -2138,18 +2166,18 @@ void RTSSHOW::RTS_HandleData()
+       else
+         xPnt = (GRID_MAX_POINTS_X - 1)- (meshPoint - (yPnt*GRID_MAX_POINTS_X)); //zag row
+       float meshVal;
+-      SERIAL_ECHOLNPGM("meshPoint ", meshPoint);
+-      SERIAL_ECHOLNPGM("xPnt ", xPnt);
+-      SERIAL_ECHOLNPGM("yPnt ", yPnt);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "meshPoint ", meshPoint);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "xPnt ", xPnt);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "yPnt ", yPnt);
+ 
+       if (recdat.data[0] >= 32768)
+         meshVal = ((float)recdat.data[0] - 65536) / 1000;
+       else
+         meshVal = ((float)recdat.data[0]) / 1000;
+ 
+-      SERIAL_ECHOLNPGM("meshVal ", meshVal);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "meshVal ", meshVal);
+       meshVal = constrain(meshVal, Z_PROBE_LOW_POINT, Z_CLEARANCE_BETWEEN_PROBES);
+-      SERIAL_ECHOLNPGM("Constrain meshVal ", meshVal);
++      DWIN_DBG(SERIAL_ECHOLNPGM, "Constrain meshVal ", meshVal);
+       xy_uint8_t point = {xPnt, yPnt};
+       setMeshPoint(point, meshVal);
+       rtscheck.RTS_SndData((meshVal*1000), recdat.addr);
+@@ -2157,7 +2185,7 @@ void RTSSHOW::RTS_HandleData()
+     }
+ 
+     default:
+-      SERIAL_ECHOLNPGM_P(PSTR("No Match :"));
++      DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("No Match :"));
+       break;
+     }
+ 
+@@ -2228,7 +2256,7 @@ void SetTouchScreenConfiguration() {
+ }
+ 
+ void onPrinterKilled(FSTR_P const error, FSTR_P const component) {
+-  SERIAL_ECHOLNPGM_P(PSTR("***kill***"));
++  DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("***kill***"));
+ 	rtscheck.RTS_SndData(ExchangePageBase + 88, ExchangepageAddr);
+   int j = 0;
+   char outmsg[40];
+@@ -2254,7 +2282,7 @@ void onPrinterKilled(FSTR_P const error, FSTR_P const component) {
+ 
+ void onMediaInserted()
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("***Initing card is OK***"));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("***Initing card is OK***"));
+   filenavigator.reset();
+   filenavigator.getFiles(0);
+   fileIndex = 0;
+@@ -2283,7 +2311,7 @@ void onMediaError()
+     rtscheck.RTS_SndData(10, FilenameIcon1 + j);
+   }
+   return;
+-	SERIAL_ECHOLNPGM_P(PSTR("***Initing card fails***"));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("***Initing card fails***"));
+ }
+ 
+ void onMediaRemoved()
+@@ -2308,17 +2336,17 @@ void onMediaRemoved()
+     rtscheck.RTS_SndData(10, FilenameIcon1 + j);
+   }
+   return;
+-	SERIAL_ECHOLN("***Card Removed***");
++	DWIN_DBG(SERIAL_ECHOLN, "***Card Removed***");
+ }
+ 
+ void onPlayTone(const uint16_t frequency, const uint16_t duration) {
+-	SERIAL_ECHOLNPGM_P(PSTR("***CPlay Tone***"));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("***CPlay Tone***"));
+   rtscheck.RTS_SndData(StartSoundSet, SoundAddr);
+ }
+ 
+ void onPrintTimerStarted()
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("==onPrintTimerStarted=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onPrintTimerStarted=="));
+   if ( waitway == 7 )
+     return;
+ 	PrinterStatusKey[1] = 3;
+@@ -2329,13 +2357,13 @@ void onPrintTimerStarted()
+ 
+ void onPrintTimerPaused()
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("==onPrintTimerPaused=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onPrintTimerPaused=="));
+ 	rtscheck.RTS_SndData(ExchangePageBase + 78, ExchangepageAddr); //Display Pause Screen
+   onStatusChanged("Pausing...");
+ }
+ void onPrintTimerStopped()
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("==onPrintTimerStopped=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onPrintTimerStopped=="));
+   if(waitway == 3)
+     return;
+ 
+@@ -2352,14 +2380,14 @@ void onPrintTimerStopped()
+ 
+ void onFilamentRunout()
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("==onFilamentRunout=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onFilamentRunout=="));
+ 	PrinterStatusKey[1] = 4;
+ 	TPShowStatus = false;
+   rtscheck.RTS_SndData(ExchangePageBase + 78, ExchangepageAddr);
+ }
+ void onFilamentRunout(extruder_t extruder)
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("==onFilamentRunout=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onFilamentRunout=="));
+   PrinterStatusKey[1] = 4;
+   TPShowStatus = false;
+   rtscheck.RTS_SndData(ExchangePageBase + 78, ExchangepageAddr);
+@@ -2464,12 +2492,12 @@ void onUserConfirmRequired(const char *const msg)
+       {
+         setPauseMenuResponse(PAUSE_RESPONSE_RESUME_PRINT);
+         setUserConfirmed();
+-        SERIAL_ECHOLNPGM_P(PSTR("Pause Mode Status"));
++        DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("Pause Mode Status"));
+         break;
+       }
+   }
+   lastPauseMsgState = ExtUI::pauseModeStatus;
+-	SERIAL_ECHOLNPGM_P(PSTR("==onUserConfirmRequired=="), pauseModeStatus);
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onUserConfirmRequired=="), pauseModeStatus);
+ }
+ 
+ void onStatusChanged(const char *const statMsg)
+@@ -2492,7 +2520,7 @@ void onFactoryReset()
+   onStartup();
+   startprogress = 0;
+   InforShowStatus = true;
+-	SERIAL_ECHOLNPGM_P(PSTR("==onFactoryReset=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onFactoryReset=="));
+ 
+ }
+ 
+@@ -2531,7 +2559,7 @@ void onStoreSettings(char *buff)
+   );
+ 
+   // Write to buffer
+-  SERIAL_ECHOLNPGM("Saving DWIN LCD setting from EEPROM");
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Saving DWIN LCD setting from EEPROM");
+   memcpy(buff, &Settings, sizeof(creality_dwin_settings_t));
+ }
+ 
+@@ -2547,45 +2575,45 @@ void onLoadSettings(const char *buff)
+ 
+   // If size is not the same, discard settings
+   if (eepromSettings.settings_size != sizeof(creality_dwin_settings_t)) {
+-    SERIAL_ECHOLNPGM("Discarding DWIN LCD setting from EEPROM - size incorrect");
++    DWIN_DBG(SERIAL_ECHOLNPGM, "Discarding DWIN LCD setting from EEPROM - size incorrect");
+ 
+     onFactoryReset();
+     return;
+   }
+ 
+   if (eepromSettings.settings_version != dwin_settings_version) {
+-    SERIAL_ECHOLNPGM("Discarding DWIN LCD setting from EEPROM - settings version incorrect");
++    DWIN_DBG(SERIAL_ECHOLNPGM, "Discarding DWIN LCD setting from EEPROM - settings version incorrect");
+ 
+     onFactoryReset();
+     return;
+   }
+ 
+   // Copy into final location
+-  SERIAL_ECHOLNPGM("Loading DWIN LCD setting from EEPROM");
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Loading DWIN LCD setting from EEPROM");
+   memcpy(&Settings, &eepromSettings, sizeof(creality_dwin_settings_t));
+ 
+-  SERIAL_ECHOLNPGM("Setting Brightness : ", Settings.screen_brightness);
+-  SERIAL_ECHOLNPGM("Setting Standby : ", Settings.standby_screen_brightness);
+-  SERIAL_ECHOLNPGM("Setting Standby Time : ", Settings.standby_time_seconds);
+-  SERIAL_ECHOLNPGM("Setting Rotation : ", Settings.screen_rotation);
+-  SERIAL_ECHOLNPGM("Setting Volume : ", Settings.display_volume);
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Setting Brightness : ", Settings.screen_brightness);
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Setting Standby : ", Settings.standby_screen_brightness);
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Setting Standby Time : ", Settings.standby_time_seconds);
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Setting Rotation : ", Settings.screen_rotation);
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Setting Volume : ", Settings.display_volume);
+ 
+-  SERIAL_ECHOLNPGM("Setting Standby On : ", Settings.display_standby);
+-  SERIAL_ECHOLNPGM("Setting Volume On : ", Settings.display_sound);
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Setting Standby On : ", Settings.display_standby);
++  DWIN_DBG(SERIAL_ECHOLNPGM, "Setting Volume On : ", Settings.display_sound);
+ 
+   SetTouchScreenConfiguration();
+ }
+ 
+ void onSettingsStored(bool success)
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("==onSettingsStored=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onSettingsStored=="));
+ 	// This is called after the entire EEPROM has been written,
+ 	// whether successful or not.
+ }
+ 
+ void onSettingsLoaded(bool success)
+ {
+-	SERIAL_ECHOLNPGM_P(PSTR("==onConfigurationStoreRead=="));
++	DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==onConfigurationStoreRead=="));
+   #if HAS_MESH
+     if (ExtUI::getMeshValid())
+     {
+@@ -2613,14 +2641,14 @@ void onSettingsLoaded(bool success)
+     }
+   #endif
+ 
+-	SERIAL_ECHOLNPGM("\n init zprobe_zoffset = ", getZOffset_mm());
++	DWIN_DBG(SERIAL_ECHOLNPGM, "\n init zprobe_zoffset = ", getZOffset_mm());
+ 	rtscheck.RTS_SndData(getZOffset_mm() * 100, ProbeOffset_Z);
+   SetTouchScreenConfiguration();
+ }
+ 
+ #if ENABLED(POWER_LOSS_RECOVERY)
+   void onPowerLossResume() {
+-    SERIAL_ECHOLNPGM_P(PSTR("==OnPowerLossResume=="));
++    DWIN_DBG(SERIAL_ECHOLNPGM_P, PSTR("==OnPowerLossResume=="));
+     startprogress = 254;
+     InforShowStatus = true;
+     TPShowStatus = false;

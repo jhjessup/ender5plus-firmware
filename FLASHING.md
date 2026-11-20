@@ -126,6 +126,13 @@ Print `test_M600_heated.gcode` from the SD card with filament loaded. It heats t
 then runs `M600`: follow the touchscreen to unload, load, and resume. If it resumes and moves
 to the corner, filament change works, and the plugin's `pause_command` can be just `M600`.
 
+## Updating to a newer build of this firmware
+
+Only the mainboard changes when the touchscreen files stay the same (as for the "friendlier
+touchscreen" update), so repeat **Stage C** only. Saved settings (Z offset, mesh, heater
+tuning) normally survive; check with `M503` afterwards. If the printer reports an EEPROM
+error, run Stage D again.
+
 ## After fitting a run-out sensor
 
 Send `M591 S1` then `M500` to switch run-out detection on.
