@@ -1,0 +1,28 @@
+; M503 from the stock firmware, before the upgrade (2026-11-19).
+; Firmware: Ender-5 Plus-Marlin1.1.6-HW-V2.2-SW-V1.70.3BLTouchMulti0411
+echo:  G21    ; Units in mm
+echo:  M149 C ; Units in Celsius
+
+echo:Filament settings: Disabled
+echo:  M200 D1.75
+echo:  M200 D0
+echo:Steps per unit:
+echo:  M92 X80.00 Y80.00 Z800.00 E139.61
+echo:Maximum feedrates (units/s):
+echo:  M203 X300.00 Y300.00 Z5.00 E60.00
+echo:Maximum Acceleration (units/s2):
+echo:  M201 X500 Y500 Z100 E1000
+echo:Acceleration (units/s2): P<print_accel> R<retract_accel> T<travel_accel>
+echo:  M204 P200.00 R1000.00 T200.00
+echo:Advanced: S<min_feedrate> T<min_travel_feedrate> B<min_segment_time_ms> X<max_xy_jerk> Z<max_z_jerk> E<max_e_jerk>
+echo:  M205 S0.00 T0.00 B20000 X8.00 Y8.00 Z0.40 E5.00
+echo:Home offset:
+echo:  M206 X0.00 Y0.00 Z3.10
+echo:Auto Bed Leveling:
+echo:  M420 S0 Z0.00
+echo:PID settings:
+echo:  M301 P19.98 I0.88 D50.29
+echo:  M304 P204.09 I36.11 D288.40
+echo:Z-Probe Offset (mm):
+echo:  M851 Z-0.20
+language: 0:cn 1:en 2:pt 3:es 4:de 5:fr 6:tr 7:it 8:ru1bedlevel_count_font: 0:save G29 Powercontinue 1:not G29 Powercontinue0ok

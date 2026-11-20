@@ -1,0 +1,72 @@
+diff --git a/Marlin/Configuration.h b/Marlin/Configuration.h
+index d3a4d18..735d882 100644
+--- a/Marlin/Configuration.h
++++ b/Marlin/Configuration.h
+@@ -12,7 +12,7 @@
+ //#define MachineCRX
+ //#define MachineCRXPro
+ //#define MachineCR10Max
+-//#define MachineEnder5Plus
++#define MachineEnder5Plus
+ //#define MachineCR6
+ //#define MachineCR6Max
+ //#define MachineEnder6
+@@ -79,9 +79,10 @@
+ //#define HotendMosquito
+ 
+ //Enable this if you have an all metal hotend capable of 300c
+-#ifndef HotendAllMetal
+-  #define HotendAllMetal
+-#endif
++// Off: this hotend has a PTFE-lined heatbreak, so it is NOT all-metal. Max nozzle temp 255 C.
++//#ifndef HotendAllMetal
++//  #define HotendAllMetal
++//#endif
+ 
+ // Enable this if you used a plug and play creality e3d or mosquito kit and kept the Creality thermistor
+ //#define CrealityThermistor
+@@ -103,7 +104,7 @@
+ 
+ //Stepper09Deg // 0.9 degree per step motor on the extruder - doubles ESteps
+ 
+- //#define MicroswissDirectDrive
++ #define MicroswissDirectDrive
+  //#define DirectDrive // Any direct drive extruder, reduces filament change lengths
+ 
+ /*
+@@ -122,7 +123,7 @@
+ //#define ABL_EZABL // TH3D EZABL or Any NO Sensor
+ //#define ABL_EZABL12MM
+ //#define ABL_NCSW //Creality ABL or Any NC Sensor
+-//#define ABL_BLTOUCH
++#define ABL_BLTOUCH
+ //#define ABL_TOUCH_MI // Uncomment ABL_TOUCH_MI to use Touch-MI sensor by hotends.fr
+ 
+ //#define Creality42XUseZMin // Use ZMin pin for probe on Creality 422 and 427 boards
+@@ -174,7 +175,7 @@
+    Melzi board users may only select ABL_BI for bilinear leveling
+    If a probe is enabled and nothing selected here, defaults to Bilinear
+ */
+-//#define ABL_BI
++#define ABL_BI
+ //#define ABL_UBL
+ 
+ /*
+@@ -2133,7 +2134,7 @@
+ #if ENABLED(CrealityTitan)
+   #define EStepsmm 382.14
+ #elif ENABLED(MicroswissDirectDrive)
+-  #define EStepsmm 130
++  #define EStepsmm 139.61 // Calibrated value from this printer (was 130)
+ #elif ENABLED(BondtechLGX)
+   #define EStepsmm 400
+ #elif(ENABLED(BondtechBMG) || ENABLED(E3DTitan))
+@@ -3254,7 +3255,7 @@
+       #define MODE_ADDON_1
+   #endif
+   #if NONE(MachineCR10Orig, MachineCR20, MachineEnder3,  MachineEnder2, MachineEnder2Pro, MachineEnder3V2, MachineEnder4, MachineEnder5, MachineCRX, Melzi_To_SBoardUpgrade) || ANY(AddonFilSensor, lerdgeFilSensor, DualFilSensors)
+-    #define FIL_RUNOUT_ENABLED { true ENABLED_ADDON} // Default enabled state for sensors E0[, E1[, E2[, E3...]]]. Override with M591EnnSn followed by M500.
++    #define FIL_RUNOUT_ENABLED { false ENABLED_ADDON} // Off until the sensor is fitted: enable with M591 S1, then M500. Default enabled state for sensors E0[, E1[, E2[, E3...]]]. Override with M591EnnSn followed by M500.
+   #else
+     #define FIL_RUNOUT_ENABLED { false DISABLED_ADDON} // Default enabled state for sensors E0[, E1[, E2[, E3...]]]. Override with M591EnnSn followed by M500.
+   #endif
